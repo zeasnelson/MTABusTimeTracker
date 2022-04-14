@@ -15,7 +15,7 @@ RTCZero rtc;
 
 // For connecting to WIFI
 char ssid[] = "YOUR WIFI NAME";
-char pass[] = "YOUR WIF PASSWORD";
+char pass[] = "YOUR WIFI PASSWORD";
 int status = WL_IDLE_STATUS;
 
 
@@ -127,6 +127,8 @@ void connectToWifi(){
   printWifiIcon(wifiConnectingColor);
   uint8_t connectRetryes = 0;
   while (status != WL_CONNECTED && connectRetryes < 5) {
+    Serial.print("Attempting to connect to network: ");
+    Serial.println(ssid);
     // Connect to WPA/WPA2 network:
     status = WiFi.begin(ssid, pass);
 
@@ -143,6 +145,9 @@ void connectToWifi(){
   }
 
   printWifiIcon(wifiConnectedColor);
+  // you're connected now, so print out the data:
+  Serial.println("You're connected to the network");
+  Serial.println("---------------------------------------");
 
 }
 
@@ -163,10 +168,13 @@ void getTimeFromInternet(){
   } while (epoch == 0 && numberOfTries < maxTries);
 
   if (numberOfTries >= maxTries) {
+    Serial.print("NTP unreachable!!");
     printWifiIcon(wifiErrorColor);
     while (1);
   } else {
     rtc.setEpoch(epoch-(TIMEZONE));
+    Serial.print("Epoch received: ");
+    Serial.println(epoch);
     printTimeDots();
     printDateSeparator();
   }
@@ -292,13 +300,15 @@ unsigned long getBusArrivalTimeInMinutes(String date){
   if (currentTimestamp == -1) {
     currentTimestamp = getCurrentTimestamp();
   }
+  Serial.print("currentTimestamp: ");
+  Serial.println(currentTimestamp);
   unsigned long busArrivalTimestamp = parseDate(date);
+  Serial.print("busArrivalTimestamp: ");
+  Serial.println(busArrivalTimestamp);
   return busArrivalTimestamp > currentTimestamp ? (busArrivalTimestamp - currentTimestamp)/60 : 99;
 }
 
 
-// manually parsing incoming JSON like a finite state machine
-// This mehtod is faster and uses less memory than JSON parser lib
 String parseJson(HttpClient http, const char *regexString){
   char c = ' ';
   uint16_t regexIndex = 0;
@@ -344,21 +354,39 @@ void getBusArrivalTimes(const char *path, uint8_t *busArrivalTimes, String busNu
 
   err = http.get(host, path);
   if (err == 0) {
+    Serial.println("startedRequest ok");
+
     err = http.responseStatusCode();
     if (err >= 200 && err < 400) {
+      Serial.print("Got status code: ");
+      Serial.println(err);
+
       err = http.skipResponseHeaders();
       if (err >= 0) {
+        Serial.println("Body returned follows:");
         uint8_t busTimeIndex = 0;
         while ( (http.connected() || http.available()) && busTimeIndex < 3) {
           String value = parseJson(http, lineNameRegex);
           if (busNumber.equals(value)){
             value = parseJson(http, arrivalTimeRegex);
+            Serial.println(value);
             busArrivalTimes[busTimeIndex++] = getBusArrivalTimeInMinutes(value);
             busArrivalTimes[3] =  busArrivalTimes[3] + 1;
           }
         }
+
+        Serial.println("Done parsing\n");
+      } else  {
+        Serial.print("Failed to skip response headers: ");
+        Serial.println(err);
       }
+    } else {
+      Serial.print("Getting response failed: ");
+      Serial.println(err);
     }
+  } else {
+    Serial.print("Connect failed: ");
+    Serial.println(err);
   }
   http.stop();
   currentTimestamp = -1;
@@ -426,6 +454,8 @@ void printStaticStuff(){
 
 /*++++++++++++++++++++++++++++++++++++++++++++++ Main ++++++++++++++++++++++++++++++++++++++++++++++*/
 void setup() {
+  Serial.begin(9600);
+  while(!Serial);
 
   // Start matrix
   matrix.begin();
@@ -463,6 +493,7 @@ void loop() {
   // As proximity increases( 6000+n...), distance between object and sensor decreases.
   if( vcnl.readProximity() > 2300 ){
     if (busTimeRefreshCounter >= busTimeRefreshLength) {
+      Serial.println("Bus refresh should have started");
         busTimeIntervalCounter = busTimeIntervalLength;
         busTimeRefreshCounter = 0;
         displayInfo = true;
@@ -513,6 +544,7 @@ void loop() {
 
       //only try callling the API if WIFI is connected
       if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Not connected to WIFI - Reconnecting");
         connectToWifi();
       }
 
